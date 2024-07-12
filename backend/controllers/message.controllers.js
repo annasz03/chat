@@ -1,44 +1,53 @@
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
 export const sendMessage = async (req, res) => {
     try {
-        const {message} = req.body;
-        const {id: recieverId} = req.params;
+        const { message } = req.body;
+        const { id: receiverId } = req.params;
         const senderId = req.user._id;
 
-        let conversation = await Conversation.findOne({
-            participants: {
-                $all: [senderId, recieverId]
-            },
-        })
+        console.log("Sender ID:", senderId);
+        console.log("Receiver ID:", receiverId);
 
-        if(!conversation) {
+        let conversation = await Conversation.findOne({
+            participants: { $all: [senderId, receiverId] },
+        });
+
+        if (!conversation) {
             conversation = await Conversation.create({
-                participants: [senderId, recieverId],
-            })
+                participants: [senderId, receiverId],
+            });
         }
 
         const newMessage = new Message({
             senderId,
-            recieverId,
+            receiverId,  // Helyes mezőnév használata
             message
-        })
+        });
 
-        if(newMessage){
+        if (newMessage) {
             conversation.messages.push(newMessage._id);
         }
 
-        //SOCKET IO
-
         await Promise.all([conversation.save(), newMessage.save()]);
 
+        // SOCKET IO
+        const receiverSocketId = getReceiverSocketId(receiverId);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit("newMessage", newMessage);
+        }
+
+        console.log("Message saved and response sent");
         res.status(201).json(newMessage);
 
     } catch (error) {
-        res.status(500).json({error: "internal server error"});
+        console.error("Error sending message:", error);
+        res.status(500).json({ error: "internal server error" });
     }
 };
+
 
 export const getMessages= async (req, res) => {
     try {
